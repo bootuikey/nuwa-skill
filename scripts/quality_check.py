@@ -15,6 +15,16 @@ import re
 from pathlib import Path
 
 
+REQUIRED_RESEARCH_FILES = [
+    "01-writings.md",
+    "02-conversations.md",
+    "03-expression-dna.md",
+    "04-external-views.md",
+    "05-decisions.md",
+    "06-timeline.md",
+]
+
+
 def check_mental_models(content: str) -> tuple[bool, str]:
     """检查心智模型数量（3-7个）"""
     # 匹配 ### 模型N: 或 ### N. 等模式
@@ -101,6 +111,63 @@ def check_primary_sources(content: str) -> tuple[bool, str]:
     return passed, f"一手来源占比: {primary}/{total} ({ratio:.0%}) {'✅' if passed else '❌ (应>50%)'}"
 
 
+def check_research_package(skill_path: Path) -> tuple[bool, str]:
+    """检查skill包是否包含Phase 1要求的六个research文件。"""
+    skill_dir = skill_path.parent
+    research_dir = skill_dir / "references" / "research"
+    if not research_dir.exists():
+        return False, f"❌ 缺少research目录: {research_dir}"
+
+    missing = [name for name in REQUIRED_RESEARCH_FILES if not (research_dir / name).exists()]
+    if missing:
+        return False, f"❌ 缺少research文件: {', '.join(missing)}"
+
+    too_short = []
+    for name in REQUIRED_RESEARCH_FILES:
+        text = (research_dir / name).read_text(encoding="utf-8", errors="replace").strip()
+        if len(text) < 500:
+            too_short.append(f"{name}({len(text)}字)")
+
+    if too_short:
+        return False, f"❌ research文件过短: {', '.join(too_short)}"
+
+    return True, "6个research文件齐全 ✅"
+
+
+def check_conversation_video_coverage(skill_path: Path) -> tuple[bool, str]:
+    """检查Agent 2是否包含长对话/视频/transcript覆盖。"""
+    conversations = skill_path.parent / "references" / "research" / "02-conversations.md"
+    if not conversations.exists():
+        return False, "❌ 缺少02-conversations.md"
+
+    text = conversations.read_text(encoding="utf-8", errors="replace")
+    lowered = text.lower()
+    markers = [
+        "youtube",
+        "youtu.be",
+        "bilibili",
+        "b站",
+        "podcast",
+        "播客",
+        "transcript",
+        "字幕",
+        "视频",
+        "演讲",
+        "访谈",
+        "lecture",
+        "interview",
+        "q&a",
+        "问答",
+    ]
+    hits = [marker for marker in markers if marker.lower() in lowered]
+    url_count = len(set(re.findall(r"https?://[^\s\)>\]]+", text)))
+    has_coverage_section = "公开视频覆盖检查" in text or "video coverage" in lowered
+
+    passed = len(hits) >= 3 and url_count >= 3 and has_coverage_section
+    detail = f"标记{len(hits)}项、URL {url_count}个、覆盖检查{'有' if has_coverage_section else '无'}"
+    return passed, f"{detail} {'✅' if passed else '❌ (应补充长对话/视频/transcript)'}"
+
+
 def main():
     if len(sys.argv) < 2:
         print("用法: python3 quality_check.py <SKILL.md路径>")
@@ -114,12 +181,14 @@ def main():
     content = skill_path.read_text(encoding='utf-8')
 
     checks = [
-        ("心智模型数量", check_mental_models),
-        ("模型局限性", check_limitations),
-        ("表达DNA辨识度", check_expression_dna),
-        ("诚实边界", check_honest_boundary),
-        ("内在张力", check_tensions),
-        ("一手来源占比", check_primary_sources),
+        ("心智模型数量", lambda _: check_mental_models(content)),
+        ("模型局限性", lambda _: check_limitations(content)),
+        ("表达DNA辨识度", lambda _: check_expression_dna(content)),
+        ("诚实边界", lambda _: check_honest_boundary(content)),
+        ("内在张力", lambda _: check_tensions(content)),
+        ("一手来源占比", lambda _: check_primary_sources(content)),
+        ("调研包完整性", lambda _: check_research_package(skill_path)),
+        ("对话视频覆盖", lambda _: check_conversation_video_coverage(skill_path)),
     ]
 
     print(f"质量检查: {skill_path.name}")
